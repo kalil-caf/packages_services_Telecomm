@@ -802,6 +802,18 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         return mState;
     }
 
+    /**
+     * Determines if this {@link Call} can receive call focus via the
+     * {@link ConnectionServiceFocusManager}.
+     * Only top-level calls and non-external calls are eligible.
+     * @return {@code true} if this call is focusable, {@code false} otherwise.
+     */
+    @Override
+    public boolean isFocusable() {
+        boolean isChild = getParentCall() != null;
+        return !isChild && !isExternalCall();
+    }
+
     private boolean shouldContinueProcessingAfterDisconnect() {
         // Stop processing once the call is active.
         if (!CreateConnectionTimeout.isCallBeingPlaced(this)) {
@@ -1164,6 +1176,12 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             return false;
         }
 
+        if (!PhoneAccount.SCHEME_SIP.equals(getHandle().getScheme()) &&
+                !PhoneAccount.SCHEME_TEL.equals(getHandle().getScheme())) {
+            // Can't log schemes other than SIP or TEL for now.
+            return false;
+        }
+
         return phoneAccount.getExtras() != null && phoneAccount.getExtras().getBoolean(
                 PhoneAccount.EXTRA_LOG_SELF_MANAGED_CALLS, false);
     }
@@ -1441,6 +1459,7 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
             if ((mConnectionProperties & Connection.PROPERTY_IS_RTT) ==
                     Connection.PROPERTY_IS_RTT) {
                 createRttStreams();
+                mWasEverRtt = true;
                 if (isEmergencyCall()) {
                     mCallsManager.setAudioRoute(CallAudioState.ROUTE_SPEAKER, null);
                     mCallsManager.mute(false);
@@ -2591,7 +2610,6 @@ public class Call implements CreateConnectionResponse, EventManager.Loggable,
         if (!areRttStreamsInitialized()) {
             Log.i(this, "Initializing RTT streams");
             try {
-                mWasEverRtt = true;
                 mInCallToConnectionServiceStreams = ParcelFileDescriptor.createReliablePipe();
                 mConnectionServiceToInCallStreams = ParcelFileDescriptor.createReliablePipe();
             } catch (IOException e) {
