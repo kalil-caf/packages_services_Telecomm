@@ -212,9 +212,9 @@ public class CallAudioRouteStateMachineTest extends TelecomSystemTest {
         verifyNewSystemCallAudioState(initState, expectedEndState);
         resetMocks();
         stateMachine.sendMessageWithSessionInfo(
-                CallAudioRouteStateMachine.DISCONNECT_BLUETOOTH);
+                CallAudioRouteStateMachine.BT_ACTIVE_DEVICE_GONE);
         stateMachine.sendMessageWithSessionInfo(
-                CallAudioRouteStateMachine.CONNECT_BLUETOOTH);
+                CallAudioRouteStateMachine.BT_ACTIVE_DEVICE_PRESENT);
 
         waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
         assertEquals(expectedEndState, stateMachine.getCurrentCallAudioState());
@@ -280,11 +280,11 @@ public class CallAudioRouteStateMachineTest extends TelecomSystemTest {
         verifyNewSystemCallAudioState(expectedMidState, expectedEndState);
 
         stateMachine.sendMessageWithSessionInfo(
-                CallAudioRouteStateMachine.DISCONNECT_BLUETOOTH);
+                CallAudioRouteStateMachine.BT_ACTIVE_DEVICE_GONE);
         when(mockBluetoothRouteManager.getBluetoothAudioConnectedDevice())
                 .thenReturn(null);
         stateMachine.sendMessageWithSessionInfo(
-                CallAudioRouteStateMachine.CONNECT_BLUETOOTH);
+                CallAudioRouteStateMachine.BT_ACTIVE_DEVICE_PRESENT);
 
         waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
         // second wait needed for the BT_AUDIO_CONNECTED message
@@ -359,7 +359,8 @@ public class CallAudioRouteStateMachineTest extends TelecomSystemTest {
                 .thenReturn(Collections.singletonList(bluetoothDevice1));
         stateMachine.sendMessageWithSessionInfo(
                 CallAudioRouteStateMachine.BLUETOOTH_DEVICE_LIST_CHANGED);
-        stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.CONNECT_BLUETOOTH);
+        stateMachine.sendMessageWithSessionInfo(
+                CallAudioRouteStateMachine.BT_ACTIVE_DEVICE_PRESENT);
         waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
 
         verify(mockBluetoothRouteManager, never()).connectBluetoothAudio(null);
@@ -428,6 +429,46 @@ public class CallAudioRouteStateMachineTest extends TelecomSystemTest {
                 availableDevices);
 
         verifyNewSystemCallAudioState(initState, expectedEndState);
+    }
+
+    @SmallTest
+    @Test
+    public void testFocusChangeWithAlreadyActiveBtDevice() {
+        CallAudioRouteStateMachine stateMachine = new CallAudioRouteStateMachine(
+                mContext,
+                mockCallsManager,
+                mockBluetoothRouteManager,
+                mockWiredHeadsetManager,
+                mockStatusBarNotifier,
+                mAudioServiceFactory,
+                CallAudioRouteStateMachine.EARPIECE_FORCE_ENABLED);
+        stateMachine.setCallAudioManager(mockCallAudioManager);
+        List<BluetoothDevice> availableDevices =
+                Arrays.asList(bluetoothDevice1, bluetoothDevice2);
+
+        // Set up a state where there's an HFP connected bluetooth device already.
+        when(mockAudioManager.isSpeakerphoneOn()).thenReturn(false);
+        when(mockBluetoothRouteManager.isBluetoothAudioConnectedOrPending()).thenReturn(true);
+        when(mockBluetoothRouteManager.isBluetoothAvailable()).thenReturn(true);
+        when(mockBluetoothRouteManager.getConnectedDevices()).thenReturn(availableDevices);
+        when(mockBluetoothRouteManager.getBluetoothAudioConnectedDevice())
+                .thenReturn(bluetoothDevice1);
+
+        // We want to be in the QuiescentBluetoothRoute because there's no call yet
+        CallAudioState initState = new CallAudioState(false, CallAudioState.ROUTE_BLUETOOTH,
+                CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_BLUETOOTH,
+                bluetoothDevice1, availableDevices);
+        stateMachine.initialize(initState);
+
+        // Switch to active, pretending that a call came in.
+        stateMachine.sendMessageWithSessionInfo(CallAudioRouteStateMachine.SWITCH_FOCUS,
+                CallAudioRouteStateMachine.ACTIVE_FOCUS);
+        waitForHandlerAction(stateMachine.getHandler(), TEST_TIMEOUT);
+
+        // Make sure that we've successfully switched to the active BT route without actually
+        // calling connectAudio.
+        verify(mockBluetoothRouteManager, never()).connectBluetoothAudio(nullable(String.class));
+        assertTrue(stateMachine.isInActiveState());
     }
 
     @SmallTest
